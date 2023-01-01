@@ -172,70 +172,81 @@ void dma_pi_write(void)
         return;
     }
 
-    if (pi_register.pi_cart_addr_reg >= 0x1fc00000) // for paper mario
-    {
-        pi_register.read_pi_status_reg |= 1;
-        update_count();
-        add_interupt_event(PI_INT, 0x1000);
-
-        return;
-    }
-
     longueur = (pi_register.pi_wr_len_reg & 0xFFFFFF)+1;
-    i = (pi_register.pi_cart_addr_reg-0x10000000)&0x3FFFFFF;
-    longueur = (i + (int) longueur) > rom_size ?
-               (rom_size - i) : longueur;
-    longueur = (pi_register.pi_dram_addr_reg + longueur) > 0x7FFFFF ?
-               (0x7FFFFF - pi_register.pi_dram_addr_reg) : longueur;
-
-    if (i>rom_size || pi_register.pi_dram_addr_reg > 0x7FFFFF)
-    {
-        pi_register.read_pi_status_reg |= 3;
-        update_count();
-        add_interupt_event(PI_INT, longueur/8);
-
-        return;
-    }
+    unsigned long dram_address = pi_register.pi_dram_addr_reg&0x7FFFFF;
+    unsigned long rom_address = (pi_register.pi_cart_addr_reg-0x10000000)&0x3FFFFFF;
 
     if (r4300emu != CORE_PURE_INTERPRETER)
     {
-        for (i=0; i<(int)longueur; i++)
+        if (rom_address + longueur < rom_size)
         {
-            unsigned long rdram_address1 = pi_register.pi_dram_addr_reg+i+0x80000000;
-            unsigned long rdram_address2 = pi_register.pi_dram_addr_reg+i+0xa0000000;
-
-            ((unsigned char*)rdram)[(pi_register.pi_dram_addr_reg+i)^S8]=
-                rom[(((pi_register.pi_cart_addr_reg-0x10000000)&0x3FFFFFF)+i)^S8];
-
-            if (!invalid_code[rdram_address1>>12])
+            for (i=0; i<(int)longueur; i++)
             {
-                if (!blocks[rdram_address1>>12] ||
-                    blocks[rdram_address1>>12]->block[(rdram_address1&0xFFF)/4].ops !=
-                    current_instruction_table.NOTCOMPILED)
+                unsigned long rdram_address1 = pi_register.pi_dram_addr_reg+i+0x80000000;
+                unsigned long rdram_address2 = pi_register.pi_dram_addr_reg+i+0xa0000000;
+
+                ((unsigned char*)rdram)[(dram_address+i)^S8]=rom[((rom_address)+i)^S8];
+
+                if (!invalid_code[rdram_address1>>12])
                 {
-                    invalid_code[rdram_address1>>12] = 1;
-                }
+                    if (!blocks[rdram_address1>>12] ||
+                        blocks[rdram_address1>>12]->block[(rdram_address1&0xFFF)/4].ops !=
+                        current_instruction_table.NOTCOMPILED)
+                    {
+                        invalid_code[rdram_address1>>12] = 1;
+                    }
 #ifdef NEW_DYNAREC
-                invalidate_block(rdram_address1>>12);
+                    invalidate_block(rdram_address1>>12);
 #endif
-            }
-            if (!invalid_code[rdram_address2>>12])
-            {
-                if (!blocks[rdram_address1>>12] ||
-                    blocks[rdram_address2>>12]->block[(rdram_address2&0xFFF)/4].ops !=
-                    current_instruction_table.NOTCOMPILED)
-                {
-                    invalid_code[rdram_address2>>12] = 1;
                 }
+                if (!invalid_code[rdram_address2>>12])
+                {
+                    if (!blocks[rdram_address1>>12] ||
+                        blocks[rdram_address2>>12]->block[(rdram_address2&0xFFF)/4].ops !=
+                        current_instruction_table.NOTCOMPILED)
+                    {
+                        invalid_code[rdram_address2>>12] = 1;
+                    }
+                }
+            }
+        }
+        else
+        {
+            long diff = rom_size - rom_address;
+            if (diff < 0) diff = 0;
+
+            for (i = 0; i < diff; ++i)
+            {
+                ((unsigned char*)rdram)[(dram_address+i)^S8] = rom[((rom_address)+i)^S8];
+            }
+            for (; i < longueur; ++i)
+            {
+                ((unsigned char*)rdram)[(dram_address+i)^S8] = 0;
             }
         }
     }
     else
     {
-        for (i=0; i<(int)longueur; i++)
+        if (rom_address + longueur < rom_size)
         {
-            ((unsigned char*)rdram)[(pi_register.pi_dram_addr_reg+i)^S8]=
-                rom[(((pi_register.pi_cart_addr_reg-0x10000000)&0x3FFFFFF)+i)^S8];
+            for (i=0; i<(int)longueur; i++)
+            {
+                ((unsigned char*)rdram)[(dram_address+i)^S8] = rom[((rom_address)+i)^S8];
+            }
+        }
+        else
+        {
+            long diff = rom_size - rom_address;
+            if (diff < 0) diff = 0;
+
+            for (i = 0; i < diff; ++i)
+            {
+                ((unsigned char*)rdram)[(dram_address+i)^S8] = rom[((rom_address)+i)^S8];
+            }
+            for (; i < longueur; ++i)
+            {
+                ((unsigned char*)rdram)[(dram_address+i)^S8] = 0;
+            }
         }
     }
 
@@ -372,4 +383,3 @@ void dma_si_read(void)
     update_count();
     add_interupt_event(SI_INT, /*0x100*/0x900);
 }
-
